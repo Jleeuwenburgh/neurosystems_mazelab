@@ -124,7 +124,7 @@ class Maze(MLMaze):
 
         self.direction_arrow = DIRECTION_ARROW
 
-    def animate(self, steps, directions=None):
+    def animate(self, steps, directions=None, goalReached=False):
         frames = [self.drawGrid.copy()]
         grid = self.drawGrid.copy()
         prev_step = steps[0]
@@ -160,7 +160,12 @@ class Maze(MLMaze):
         # Create the figure and axes objects
         fig, ax = plt.subplots()
         plt.axis("off")  # Hide the axes
-        fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=None, hspace=None)
+        if goalReached:
+            plt.title("Goal Reached! Well Done!")
+
+        fig.subplots_adjust(
+            left=0, bottom=0, right=1, top=0.95, wspace=None, hspace=None
+        )
 
         # Set the initial image
         im = ax.imshow(colormap(frames[0]), animated=True)
@@ -219,12 +224,23 @@ class Robot:
         self.maze = maze
         self.position = self.maze.start
         self.direction = "N"
-        self.path = [[self.position], [self.direction]]
+        self.path = [[list(self.position)], [self.direction]]
+
+        self.goalReached = False
 
         pass
 
+    def checkGoal(self):
+        if self.position == list(self.maze.end):
+            self.goalReached = True
+            return True
+        return False
+
+    def getPath(self):
+        return np.array([np.array(step) for step in self.path[0]])
+
     # def checking if a position is valid
-    def isValidPos(self, pos, step=1):
+    def __isvalidPos(self, pos, step=1):
         if pos[0] < 0 or pos[0] >= self.maze.grid.shape[0]:
             return False
         if pos[1] < 0 or pos[1] >= self.maze.grid.shape[1]:
@@ -234,14 +250,14 @@ class Robot:
         if step > 1:
             if self.maze.grid[pos[0]][pos[1]] == 1:
                 return False
-            return self.isValidPos([pos[0], pos[1]], step - 1)
+            return self.__isvalidPos([pos[0], pos[1]], step - 1)
 
         if self.maze.grid[pos[0]][pos[1]] == 1:
             return False
         return True
 
     # move the robot to a new position
-    def move(self, direction, step=1):
+    def __move(self, direction, step=1):
         # directions: 1 - up, 2 - right, 3 - down, 4 - left
         proposed_pos = [self.position[0], self.position[1]]
         if direction == 4:
@@ -253,42 +269,67 @@ class Robot:
         elif direction == 1:
             proposed_pos[0] -= step
 
-        if self.isValidPos(proposed_pos, step):
+        if self.__isvalidPos(proposed_pos, step):
             self.position = proposed_pos
             self.path[0].append(self.position)
+
+            self.checkGoal()
+
             return True
         return False
 
-    def move_directional(self, step):
-        # directions: 0 - forward, 1 - right, 2 - backward, 3 - left
-        directional_move = (step + self.direction) % 4 + 1
-        if self.move(directional_move):
-            self.direction = step
-            self.directions.append(self.direction)
-            return True
-        return False
+    # def move_directional(self, step):
+    #     # directions: 0 - forward, 1 - right, 2 - backward, 3 - left
+    #     directional_move = (step + self.direction) % 4 + 1
+    #     if self.move(directional_move):
+    #         self.direction = step
+    #         self.directions.append(self.direction)
+    #         return True
+    #     return False
 
-    def turnLeft(self):
+    def turnLeft(
+        self,
+    ):  # Turns the direction to the left and appends new position and direction
         self.direction = LEFT_TURNS[self.direction]
         self.path[0].append(self.position)
         self.path[1].append(self.direction)
         pass
 
-    def turnRight(self):
+    def turnRight(
+        self,
+    ):  # Turns the direction to the left and appends new position and direction
         self.direction = RIGHT_TURNS[self.direction]
         self.path[0].append(self.position)
         self.path[1].append(self.direction)
         pass
 
-    def moveForward(self):
-        if self.move(DIERCTONS_NESW.index(self.direction) + 1):
+    def moveForward(self):  # Moves in the current direction
+        if self.__move(DIERCTONS_NESW.index(self.direction) + 1):
             self.path[1].append(self.direction)
         pass
 
-    def checkGoal(self):
-        if self.position == self.maze.end:
-            return True
-        return False
+    def lookAround(self, specificDirection=None):
+        # returns a dictionary of the walls around the robot in the order of NESW
+        # 0 - no wall, 1 - wall
+        if specificDirection:
+            return self.__isvalidPos(
+                [
+                    self.position[0]
+                    + [-1, 0, 1, 0][DIERCTONS_NESW.index(specificDirection)],
+                    self.position[1]
+                    + [0, 1, 0, -1][DIERCTONS_NESW.index(specificDirection)],
+                ]
+            )
+        else:
+            walls = {}
+            for i in range(4):
+                walls[DIERCTONS_NESW[i]] = self.__isvalidPos(
+                    [
+                        self.position[0] + [-1, 0, 1, 0][i],
+                        self.position[1] + [0, 1, 0, -1][i],
+                    ]
+                )
+            return walls
 
     def run(self):
-        self.maze.animate(self.path[0], self.path[1])
+        self.maze.animate(self.path[0], self.path[1], self.goalReached)
