@@ -12,7 +12,6 @@ from IPython import display as idp
 
 colormap = colors.ListedColormap(["white", "black", "red", "green", "blue", "pink"])
 
-
 DIRECTION_ARROW = np.array(
     [
         [4, 4, 4, 4, 4, 4, 4],
@@ -124,6 +123,46 @@ MAZE_SPIRAL = {
     "end": (9, 11),
 }
 
+MAZE_EMPTY = {
+    'grid': np.array(
+        [
+            [1, 1, 1, 1, 1],
+            [1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1],
+            [1, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1]
+        ]
+    ),
+    'start': (2, 2),
+    'end': (3, 3)
+}
+
+MAZE_FILLED = {
+    'grid': np.array(
+        [
+            [1, 1, 1],
+            [1, 0, 1],
+            [1, 1, 1]
+        ]
+    ),
+    'start': (1, 1),
+    'end': (2, 2)
+}
+
+MAZE_INEFFICIENT = {
+    'grid': np.array(
+        [
+            [1, 1, 1, 1, 1],
+            [1, 1, 0, 1, 1],
+            [1, 1, 0, 1, 1],
+            [1, 0, 0, 0, 1],
+            [1, 1, 1, 1, 1]
+        ]
+    ),
+    'start': (3, 2),
+    'end': (3, 3)
+}
+
 DIERCTONS_NESW = ["N", "E", "S", "W"]
 LEFT_TURNS = {"N": "W", "W": "S", "S": "E", "E": "N"}
 RIGHT_TURNS = {"N": "E", "E": "S", "S": "W", "W": "N"}
@@ -131,6 +170,8 @@ RIGHT_TURNS = {"N": "E", "E": "S", "S": "W", "W": "N"}
 
 class Maze(MLMaze):
     def __init__(self, width, height, preMaze=None, generator=None):
+        self.isWaterMaze = False
+
         if preMaze is not None:
             self.grid = preMaze["grid"]
             self.start = preMaze["start"]
@@ -156,11 +197,50 @@ class Maze(MLMaze):
 
     def view(self):
         plt.axis("off")
-        plt.imshow(colormap(self.drawGrid))
-
-    def animate(self, steps, directions=None, goalReached=False):
-        frames = [self.drawGrid.copy()]
         grid = self.drawGrid.copy()
+        grid[self.end[0]][self.end[1]] = 3
+        if self.isWaterMaze: # make the platform bigger
+            grid[self.end[0] + 1][self.end[1]] = 3
+            grid[self.end[0]][self.end[1] + 1] = 3
+            grid[self.end[0] + 1][self.end[1] + 1] = 3
+        plt.imshow(colormap(grid))
+
+    def waterMaze(self):
+        maze = self.emptyCopy() # remove the walls
+        end_x = maze['end'][0]
+        end_y = maze['end'][1]
+        # move platform if it is too close to the edge
+        if end_x >= maze['grid'].shape[0] - 2:
+            end_x -= 1
+        if end_y >= maze['grid'].shape[1] - 2:
+            end_y -= 1
+        
+        maze['end'] = (end_x, end_y)
+
+        waterMaze = Maze(None, None, preMaze=maze)
+        waterMaze.isWaterMaze = True
+        return waterMaze
+
+    def emptyCopy(self):
+        emptyGrid = np.zeros(self.grid.shape, dtype=int)
+        # make sides walls
+        emptyGrid[0, :] = 1
+        emptyGrid[-1, :] = 1
+        emptyGrid[:, 0] = 1
+        emptyGrid[:, -1] = 1
+        preMaze = {
+            "grid": emptyGrid,
+            "start": self.start,
+            "end": self.end
+        }
+        return preMaze
+        
+    def animate(self, steps, directions=None, goalReached=False):
+        drawGrid = self.drawGrid.copy()
+        if self.isWaterMaze: # hide platform
+            drawGrid[self.end[0]][self.end[1]] = 0
+        frames = [drawGrid]
+        grid = drawGrid.copy()
         prev_step = steps[0]
 
         for i, step in enumerate(steps):
@@ -175,17 +255,21 @@ class Maze(MLMaze):
 
             prev_step = step
 
+            grid_copy = grid.copy()  # copy the grid to avoid modifying the original grid
+            # if self.isWaterMaze:
+            # hide platform
+            #     grid_copy[self.end[0] + 1][self.end[1]] = 3
+            #     grid_copy[self.end[0]][self.end[1] + 1] = 3
+            #     grid_copy[self.end[0] + 1][self.end[1] + 1] = 3
+
             if directions is None:  # if move() is used instead of move_directional()
-                grid_copy = (
-                    grid.copy()
-                )  # copy the grid to avoid modifying the original grid
                 grid_copy[step[0]][
                     step[1]
                 ] = 2  # mark the current step as the robot's position
                 frames.append(grid_copy)  # append the grid to the frames
             else:  # if move_directional() is used
                 expanded_grid = self.draw_grid_directional(
-                    grid, step, DIERCTONS_NESW.index(directions[i])
+                    grid_copy, step, DIERCTONS_NESW.index(directions[i])
                 )
                 frames.append(
                     expanded_grid
@@ -264,7 +348,25 @@ class Robot:
 
         pass
 
+    def newStart(self):
+        new_direction = np.random.randint(0, 3)
+        self.direction = ["N", "E", "S", "W"][new_direction]
+        start_x = np.random.randint(1, self.maze.grid.shape[0] - 2)
+        start_y = np.random.randint(1, self.maze.grid.shape[1] - 2)
+        self.position = (start_x, start_y)
+        self.path = [[list(self.position)], [self.direction]]
+        self.maze.drawGrid[self.maze.start[0]][self.maze.start[1]] = 0 # remove old start
+        self.maze.start = (start_x, start_y) # add new start
+        self.maze.drawGrid[self.maze.start[0]][self.maze.start[1]] = 2 # add new start
+
     def checkGoal(self):
+        if self.maze.isWaterMaze:
+            if self.position[0] == self.maze.end[0] or self.position[0] == self.maze.end[0] + 1:
+                if self.position[1] == self.maze.end[1] or self.position[1] == self.maze.end[1] + 1:
+                    self.goalReached = True
+                    return True
+                return False
+
         if self.position == list(self.maze.end):
             self.goalReached = True
             return True
